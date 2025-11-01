@@ -81,8 +81,8 @@ local function CreateMainGUI()
     return gui, mainContainer, mainFrame
 end
 
--- Создание верхней панели
-local function CreateTopBar(mainFrame)
+-- Создание верхней панели с возможностью перетаскивания
+local function CreateTopBar(mainFrame, mainContainer)
     local topBar = Instance.new("Frame")
     topBar.Size = UDim2.new(1, 0, 0, 40)
     topBar.BackgroundColor3 = Color3.fromRGB(18, 14, 24)
@@ -148,16 +148,85 @@ local function CreateTopBar(mainFrame)
     versionLabel.ZIndex = 11
     versionLabel.Parent = topBar
 
+    -- Система перетаскивания
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    -- Функция обновления позиции с ограничениями
+    local function updatePosition(input)
+        if not dragging then return end
+        
+        local delta = input.Position - dragStart
+        local newPosition = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+        
+        -- Ограничения для предотвращения выхода за экран
+        local viewportSize = workspace.CurrentCamera.ViewportSize
+        local containerSize = mainContainer.AbsoluteSize
+        
+        local minX = 0
+        local maxX = viewportSize.X - containerSize.X
+        local minY = 0
+        local maxY = viewportSize.Y - containerSize.Y
+        
+        local absoluteX = newPosition.X.Offset
+        local absoluteY = newPosition.Y.Offset
+        
+        -- Применяем ограничения
+        absoluteX = math.clamp(absoluteX, minX, maxX)
+        absoluteY = math.clamp(absoluteY, minY, maxY)
+        
+        mainContainer.Position = UDim2.new(0, absoluteX, 0, absoluteY)
+    end
+
+    -- Обработчики событий перетаскивания
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainContainer.Position
+            
+            -- Эффект при захвате
+            TweenService:Create(topBar, TweenInfo.new(0.1), {
+                BackgroundColor3 = Color3.fromRGB(25, 20, 32)
+            }):Play()
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    TweenService:Create(topBar, TweenInfo.new(0.1), {
+                        BackgroundColor3 = Color3.fromRGB(18, 14, 24)
+                    }):Play()
+                end
+            end)
+        end
+    end)
+
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updatePosition(input)
+        end
+    end)
+
     return topBar
 end
 
--- Создание системы вкладок
+-- Создание системы вкладок (БЕЗ АНИМАЦИИ)
 local function CreateTabSystem(mainFrame)
     local tabNames = {"COMBAT", "VISUALS", "MISC", "CONFIG"}
     local tabContents = {}
     local tabButtons = {}
     local activeTab = "COMBAT"
-    local tabAnimating = false
 
     -- Контейнер для вкладок
     local tabsContainer = Instance.new("Frame")
@@ -197,7 +266,7 @@ local function CreateTabSystem(mainFrame)
         
         -- Эффект при наведении
         tab.MouseEnter:Connect(function()
-            if name ~= activeTab and not tabAnimating then
+            if name ~= activeTab then
                 TweenService:Create(tab, TweenInfo.new(0.2), {
                     BackgroundColor3 = Color3.fromRGB(65, 45, 95),
                     TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -209,7 +278,7 @@ local function CreateTabSystem(mainFrame)
         end)
         
         tab.MouseLeave:Connect(function()
-            if name ~= activeTab and not tabAnimating then
+            if name ~= activeTab then
                 TweenService:Create(tab, TweenInfo.new(0.2), {
                     BackgroundColor3 = Color3.fromRGB(35, 28, 45),
                     TextColor3 = Color3.fromRGB(230, 220, 250)
@@ -238,38 +307,24 @@ local function CreateTabSystem(mainFrame)
         tabContents[name] = tabContent
         tabButtons[name] = {Button = tab, Stroke = tabStroke}
         
-        -- Обработчик клика с анимацией
+        -- Обработчик клика (БЕЗ АНИМАЦИИ)
         tab.MouseButton1Click:Connect(function()
-            if tabAnimating or activeTab == name then return end
-            tabAnimating = true
+            if activeTab == name then return end
             
-            local currentTab = tabContents[activeTab]
-            TweenService:Create(currentTab, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Position = UDim2.new(1, 0, 0, 85)
-            }):Play()
+            -- Скрываем текущую вкладку
+            tabContents[activeTab].Visible = false
             
-            task.delay(0.1, function()
-                for tabName, content in pairs(tabContents) do
-                    content.Visible = false
-                end
-                
-                for tabName, btnData in pairs(tabButtons) do
-                    local isActive = (tabName == name)
-                    btnData.Button.BackgroundColor3 = isActive and VeryUp.Settings.DefaultColors.Secondary or Color3.fromRGB(35, 28, 45)
-                    btnData.Button.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(230, 220, 250)
-                    btnData.Stroke.Color = isActive and VeryUp.Settings.DefaultColors.Primary or Color3.fromRGB(80, 60, 110)
-                end
-                
-                tabContent.Visible = true
-                tabContent.Position = UDim2.new(-1, 0, 0, 85)
-                
-                TweenService:Create(tabContent, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                    Position = UDim2.new(0, 10, 0, 85)
-                }):Play()
-                
-                activeTab = name
-                tabAnimating = false
-            end)
+            -- Обновляем стили кнопок
+            for tabName, btnData in pairs(tabButtons) do
+                local isActive = (tabName == name)
+                btnData.Button.BackgroundColor3 = isActive and VeryUp.Settings.DefaultColors.Secondary or Color3.fromRGB(35, 28, 45)
+                btnData.Button.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(230, 220, 250)
+                btnData.Stroke.Color = isActive and VeryUp.Settings.DefaultColors.Primary or Color3.fromRGB(80, 60, 110)
+            end
+            
+            -- Показываем новую вкладку
+            tabContent.Visible = true
+            activeTab = name
         end)
     end
 
@@ -866,7 +921,7 @@ end)
 function VeryUp:Init()
     -- Создание GUI
     local gui, mainContainer, mainFrame = CreateMainGUI()
-    local topBar = CreateTopBar(mainFrame)
+    local topBar = CreateTopBar(mainFrame, mainContainer)
     local tabContents = CreateTabSystem(mainFrame)
     CreateParticles(mainFrame)
     
@@ -939,6 +994,7 @@ function VeryUp:Init()
     print("📱 Press " .. VeryUp.Settings.MenuToggleKey .. " to toggle menu")
     print("💫 Version: Rost Alpha")
     print("🔧 Modular system ready!")
+    print("🖱️ Drag the top bar to move the GUI")
     
     return VeryUp
 end
