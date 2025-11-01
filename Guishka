@@ -33,6 +33,144 @@ VeryUp.Settings = {
 }
 
 ---------------------------------------------------------------
+-- СИСТЕМА СНЕЖИНОК ВНУТРИ GUI
+---------------------------------------------------------------
+
+function VeryUp:CreateSnowflakes(mainContainer)
+    local snowContainer = Instance.new("Frame")
+    snowContainer.Size = UDim2.new(1, 0, 1, 0)
+    snowContainer.BackgroundTransparency = 1
+    snowContainer.ZIndex = 1
+    snowContainer.ClipsDescendants = true -- Обрезаем снежинки, которые выходят за границы
+    snowContainer.Parent = mainContainer
+    
+    local snowflakes = {}
+    local snowflakeCount = 50 -- Количество снежинок
+    
+    -- Функция создания одной снежинки
+    local function createSnowflake()
+        local snowflake = Instance.new("Frame")
+        local size = math.random(3, 8)
+        snowflake.Size = UDim2.new(0, size, 0, size)
+        
+        -- Начальная позиция в пределах GUI
+        snowflake.Position = UDim2.new(
+            math.random() * 0.9 + 0.05, -- От 5% до 95% ширины GUI
+            0,
+            math.random() * -0.2, -- Начинают сверху за пределами видимой области
+            0
+        )
+        
+        snowflake.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        snowflake.BorderSizePixel = 0
+        snowflake.ZIndex = 1
+        snowflake.BackgroundTransparency = 0.3 + math.random() * 0.4
+        
+        -- Закругление для формы снежинки
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0.5, 0)
+        corner.Parent = snowflake
+        
+        -- Разные типы снежинок с разным поведением
+        local snowflakeType = math.random(1, 4)
+        local speed, swing, swingSpeed, rotationSpeed
+        
+        if snowflakeType == 1 then
+            -- Медленные большие снежинки
+            speed = math.random(20, 30)
+            swing = math.random() * 3
+            swingSpeed = math.random(0.5, 1.5)
+            rotationSpeed = math.random(1, 3)
+        elseif snowflakeType == 2 then
+            -- Быстрые маленькие снежинки
+            speed = math.random(35, 50)
+            swing = math.random() * 2
+            swingSpeed = math.random(2, 4)
+            rotationSpeed = math.random(4, 8)
+        elseif snowflakeType == 3 then
+            -- Средние с большим покачиванием
+            speed = math.random(25, 40)
+            swing = math.random() * 5
+            swingSpeed = math.random(1, 2)
+            rotationSpeed = math.random(2, 5)
+        else
+            -- Очень медленные с вращением
+            speed = math.random(15, 25)
+            swing = math.random() * 1.5
+            swingSpeed = math.random(0.3, 0.8)
+            rotationSpeed = math.random(8, 12)
+        end
+        
+        local snowflakeData = {
+            instance = snowflake,
+            speed = speed,
+            swing = swing,
+            swingSpeed = swingSpeed,
+            rotationSpeed = rotationSpeed,
+            size = size,
+            startX = snowflake.Position.X.Scale, -- Запоминаем начальную позицию по X
+            timeOffset = math.random() * 10,
+            windInfluence = (math.random() - 0.5) * 0.1 -- Влияние ветра (меньше, чтобы не вылетали)
+        }
+        
+        snowflake.Parent = snowContainer
+        return snowflakeData
+    end
+    
+    -- Создаем все снежинки
+    for i = 1, snowflakeCount do
+        table.insert(snowflakes, createSnowflake())
+    end
+    
+    -- Анимация снежинок
+    local snowTime = 0
+    RunService.Heartbeat:Connect(function(delta)
+        snowTime = snowTime + delta
+        
+        for i, snowflake in ipairs(snowflakes) do
+            local flake = snowflake.instance
+            local time = snowTime + snowflake.timeOffset
+            
+            -- Движение вниз (в пределах GUI)
+            local newY = flake.Position.Y.Scale + (snowflake.speed * delta) / 200
+
+            -- Боковое движение с покачиванием (ограничено границами GUI)
+            local swingOffset = math.sin(time * snowflake.swingSpeed + snowflake.swing) * snowflake.swing / 100
+            local windOffset = math.sin(time * 0.3) * snowflake.windInfluence
+            local newX = snowflake.startX + swingOffset + windOffset
+            
+            -- Ограничиваем движение по X в пределах GUI
+            newX = math.clamp(newX, 0.02, 0.98) -- Отступаем 2% от краев
+
+            -- Вращение
+            if snowflake.rotationSpeed > 0 then
+                flake.Rotation = math.sin(time * snowflake.rotationSpeed) * 15
+            end
+            
+            -- Прозрачность (мерцание)
+            local flicker = 0.3 + math.sin(time * 2 + snowflake.swing) * 0.3
+            flake.BackgroundTransparency = math.clamp(flicker, 0.2, 0.7)
+            
+            -- Изменение размера (пульсация)
+            local scale = 0.7 + math.sin(time * 1.5) * 0.3
+            flake.Size = UDim2.new(0, snowflake.size * scale, 0, snowflake.size * scale)
+            
+            -- Если снежинка ушла за нижнюю границу GUI, перемещаем её наверх
+            if newY > 1.1 then
+                newY = -0.1
+                newX = math.random() * 0.9 + 0.05 -- Случайная позиция по X
+                snowflake.startX = newX
+            end
+            
+            -- Обновляем позицию
+            flake.Position = UDim2.new(newX, 0, newY, 0)
+        end
+    end)
+    
+    return snowContainer
+end
+
+---------------------------------------------------------------
 -- ВНУТРЕННИЕ ФУНКЦИИ
 ---------------------------------------------------------------
 
@@ -47,7 +185,7 @@ local function CreateMainGUI()
     mainContainer.Size = UDim2.new(0, 800, 0, 500)
     mainContainer.Position = UDim2.new(0.5, -400, 0.5, -250)
     mainContainer.BackgroundTransparency = 1
-    mainContainer.ClipsDescendants = true
+    mainContainer.ClipsDescendants = true -- Важно: обрезаем содержимое по границам
     mainContainer.Parent = gui
 
     -- Основной фрейм
@@ -421,6 +559,98 @@ local function CreateParticles(mainFrame)
             part.Size = UDim2.new(0, p.size * scale, 0, p.size * scale)
         end
     end)
+end
+
+-- Создание ссылки на Discord внизу GUI
+local function CreateDiscordLink(mainFrame)
+    local discordContainer = Instance.new("Frame")
+    discordContainer.Size = UDim2.new(1, 0, 0, 20)
+    discordContainer.Position = UDim2.new(0, 0, 1, -25)
+    discordContainer.BackgroundTransparency = 1
+    discordContainer.ZIndex = 10
+    discordContainer.Parent = mainFrame
+
+    local discordLink = Instance.new("TextButton")
+    discordLink.Size = UDim2.new(1, 0, 1, 0)
+    discordLink.Text = "https://discord.gg/suKRSKDv"
+    discordLink.FontFace = Font.new(VeryUp.Settings.Font)
+    discordLink.TextSize = 10
+    discordLink.TextColor3 = Color3.fromRGB(150, 140, 180)
+    discordLink.BackgroundTransparency = 1
+    discordLink.BorderSizePixel = 0
+    discordLink.ZIndex = 11
+    discordLink.Parent = discordContainer
+
+    -- Подчеркивание для имитации ссылки
+    local underline = Instance.new("Frame")
+    underline.Size = UDim2.new(0, 0, 0, 1)
+    underline.Position = UDim2.new(0.5, 0, 1, -2)
+    underline.BackgroundColor3 = Color3.fromRGB(150, 140, 180)
+    underline.BorderSizePixel = 0
+    underline.ZIndex = 11
+    underline.Parent = discordLink
+
+    -- Анимация подчеркивания
+    local function updateUnderline()
+        local textWidth = discordLink.TextBounds.X
+        TweenService:Create(underline, TweenInfo.new(0.3), {
+            Size = UDim2.new(0, textWidth, 0, 1),
+            Position = UDim2.new(0.5, -textWidth/2, 1, -2)
+        }):Play()
+    end
+
+    -- Обновляем подчеркивание когда текст меняется
+    discordLink:GetPropertyChangedSignal("Text"):Connect(updateUnderline)
+    updateUnderline()
+
+    -- Эффекты при наведении
+    discordLink.MouseEnter:Connect(function()
+        TweenService:Create(discordLink, TweenInfo.new(0.2), {
+            TextColor3 = VeryUp.Settings.DefaultColors.Primary
+        }):Play()
+        TweenService:Create(underline, TweenInfo.new(0.2), {
+            BackgroundColor3 = VeryUp.Settings.DefaultColors.Primary,
+            Size = UDim2.new(0, discordLink.TextBounds.X + 10, 0, 1),
+            Position = UDim2.new(0.5, -(discordLink.TextBounds.X + 10)/2, 1, -2)
+        }):Play()
+    end)
+
+    discordLink.MouseLeave:Connect(function()
+        TweenService:Create(discordLink, TweenInfo.new(0.2), {
+            TextColor3 = Color3.fromRGB(150, 140, 180)
+        }):Play()
+        TweenService:Create(underline, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(150, 140, 180),
+            Size = UDim2.new(0, discordLink.TextBounds.X, 0, 1),
+            Position = UDim2.new(0.5, -discordLink.TextBounds.X/2, 1, -2)
+        }):Play()
+    end)
+
+    -- Функциональность при клике
+    discordLink.MouseButton1Click:Connect(function()
+        -- Копируем ссылку в буфер обмена
+        pcall(function()
+            setclipboard("https://discord.gg/suKRSKDv")
+        end)
+        
+        -- Визуальная обратная связь
+        local originalText = discordLink.Text
+        discordLink.Text = "Скопировано в буфер!"
+        
+        TweenService:Create(discordLink, TweenInfo.new(0.2), {
+            TextColor3 = Color3.fromRGB(100, 255, 100)
+        }):Play()
+        
+        -- Возвращаем оригинальный текст через 2 секунды
+        delay(2, function()
+            discordLink.Text = originalText
+            TweenService:Create(discordLink, TweenInfo.new(0.2), {
+                TextColor3 = Color3.fromRGB(150, 140, 180)
+            }):Play()
+        end)
+    end)
+
+    return discordContainer
 end
 
 ---------------------------------------------------------------
@@ -923,7 +1153,12 @@ function VeryUp:Init()
     local gui, mainContainer, mainFrame = CreateMainGUI()
     local topBar = CreateTopBar(mainFrame, mainContainer)
     local tabContents = CreateTabSystem(mainFrame)
+    
+    -- СОЗДАНИЕ СНЕЖИНОК ВНУТРИ GUI (исправленная версия)
+    VeryUp:CreateSnowflakes(mainContainer)
+    
     CreateParticles(mainFrame)
+    local discordLink = CreateDiscordLink(mainFrame)
     
     -- Сохраняем ссылки на GUI
     VeryUp.GUI = {
@@ -931,7 +1166,8 @@ function VeryUp:Init()
         Container = mainContainer,
         Frame = mainFrame,
         TopBar = topBar,
-        TabContents = tabContents
+        TabContents = tabContents,
+        DiscordLink = discordLink
     }
     
     -- Анимация появления
@@ -995,6 +1231,8 @@ function VeryUp:Init()
     print("💫 Version: Rost Alpha")
     print("🔧 Modular system ready!")
     print("🖱️ Drag the top bar to move the GUI")
+    print("❄️ Snowflakes system activated INSIDE GUI!")
+    print("📢 Join our Discord: https://discord.gg/suKRSKDv")
     
     return VeryUp
 end
