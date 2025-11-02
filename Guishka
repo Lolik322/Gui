@@ -1,12 +1,13 @@
 --==============================================================
--- Very.Up | Modular UI Library
--- Advanced GUI with Module Support
+-- Very.Up | Новогодняя версия с Keybind List и системой конфигов
+-- Winter Holiday Theme UI Library with Keybind List & Config System
 --==============================================================
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 
 ---------------------------------------------------------------
 -- МОДУЛЬНАЯ СИСТЕМА VERYUP
@@ -19,18 +20,376 @@ VeryUp.__index = VeryUp
 VeryUp.Tabs = {}
 VeryUp.ActiveKeybinds = {}
 VeryUp.Elements = {}
+VeryUp.Configs = {}
+VeryUp.KeybindList = {}
 
--- Основные настройки
+-- Новогодние настройки
 VeryUp.Settings = {
     MenuToggleKey = "Insert",
     Font = "rbxassetid://12187371840",
     DefaultColors = {
-        Primary = Color3.fromRGB(170, 100, 255),
-        Secondary = Color3.fromRGB(90, 50, 140),
-        Background = Color3.fromRGB(10, 8, 15),
-        Text = Color3.fromRGB(255, 255, 255)
+        Primary = Color3.fromRGB(255, 255, 255),      -- Белый
+        Secondary = Color3.fromRGB(100, 200, 255),    -- Голубой
+        Accent = Color3.fromRGB(255, 50, 50),         -- Красный для акцентов
+        Background = Color3.fromRGB(10, 20, 40),      -- Темно-синий фон
+        Text = Color3.fromRGB(255, 255, 255)          -- Белый текст
     }
 }
+
+---------------------------------------------------------------
+-- СИСТЕМА КОНФИГУРАЦИЙ
+---------------------------------------------------------------
+
+function VeryUp:SaveConfig(configName)
+    if not configName or configName == "" then
+        configName = "default"
+    end
+    
+    local configData = {
+        name = configName,
+        timestamp = os.time(),
+        elements = {}
+    }
+    
+    -- Сохраняем состояние всех элементов
+    for i, element in ipairs(VeryUp.Elements) do
+        if element.GetState then
+            configData.elements[i] = {
+                type = "toggle",
+                state = element:GetState()
+            }
+        elseif element.GetValue then
+            configData.elements[i] = {
+                type = "slider", 
+                value = element:GetValue()
+            }
+        elseif element.GetKey then
+            configData.elements[i] = {
+                type = "keybind",
+                key = element:GetKey()
+            }
+        end
+    end
+    
+    -- Сохраняем в глобальную таблицу
+    VeryUp.Configs[configName] = configData
+    
+    -- Показываем уведомление
+    VeryUp:ShowNotification("✅ Конфиг '" .. configName .. "' сохранен!")
+    
+    return true
+end
+
+function VeryUp:LoadConfig(configName)
+    if not configName then
+        configName = "default"
+    end
+    
+    local configData = VeryUp.Configs[configName]
+    if not configData then
+        VeryUp:ShowNotification("❌ Конфиг '" .. configName .. "' не найден!")
+        return false
+    end
+    
+    -- Восстанавливаем состояние элементов
+    for i, elementData in ipairs(configData.elements) do
+        local element = VeryUp.Elements[i]
+        if element then
+            if elementData.type == "toggle" and element.SetState then
+                element:SetState(elementData.state)
+            elseif elementData.type == "slider" and element.SetValue then
+                element:SetValue(elementData.value)
+            elseif elementData.type == "keybind" and element.SetKey then
+                element:SetKey(elementData.key)
+            end
+        end
+    end
+    
+    VeryUp:ShowNotification("✅ Конфиг '" .. configName .. "' загружен!")
+    return true
+end
+
+function VeryUp:DeleteConfig(configName)
+    if not configName then
+        configName = "default"
+    end
+    
+    if VeryUp.Configs[configName] then
+        VeryUp.Configs[configName] = nil
+        VeryUp:ShowNotification("✅ Конфиг '" .. configName .. "' удален!")
+        return true
+    else
+        VeryUp:ShowNotification("❌ Конфиг '" .. configName .. "' не найден!")
+        return false
+    end
+end
+
+function VeryUp:GetConfigList()
+    local configList = {}
+    for name, _ in pairs(VeryUp.Configs) do
+        table.insert(configList, name)
+    end
+    return configList
+end
+
+---------------------------------------------------------------
+-- KEYBIND LIST СИСТЕМА
+---------------------------------------------------------------
+
+function VeryUp:CreateKeybindList()
+    -- Основной контейнер для Keybind List
+    local keybindContainer = Instance.new("ScreenGui")
+    keybindContainer.Name = "VeryUpKeybindList"
+    keybindContainer.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    keybindContainer.ResetOnSpawn = false
+    
+    -- Основной фрейм
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 250, 0, 300)
+    mainFrame.Position = UDim2.new(0, 20, 0.5, -150) -- Левый край, посередине
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 30, 60)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ZIndex = 20
+    mainFrame.Parent = keybindContainer
+    
+    -- Голубая обводка
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(100, 200, 255)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    -- Градиентный фон
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 40, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 30, 60))
+    })
+    gradient.Rotation = 90
+    gradient.Parent = mainFrame
+    
+    -- Заголовок
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1, 0, 0, 30)
+    header.Text = "KEYBINDS"
+    header.FontFace = Font.new(VeryUp.Settings.Font)
+    header.TextSize = 14
+    header.TextColor3 = Color3.fromRGB(255, 255, 255)
+    header.BackgroundColor3 = Color3.fromRGB(25, 50, 100)
+    header.BorderSizePixel = 0
+    header.ZIndex = 21
+    header.Parent = mainFrame
+    
+    -- Контейнер для списка кейбиндов
+    local listContainer = Instance.new("ScrollingFrame")
+    listContainer.Size = UDim2.new(1, -10, 1, -40)
+    listContainer.Position = UDim2.new(0, 5, 0, 35)
+    listContainer.BackgroundTransparency = 1
+    listContainer.BorderSizePixel = 0
+    listContainer.ScrollBarThickness = 4
+    listContainer.ZIndex = 21
+    listContainer.Parent = mainFrame
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 5)
+    listLayout.Parent = listContainer
+    
+    -- Система перетаскивания
+    local dragging = false
+    local dragInput, dragStart, startPos
+    
+    local function updatePosition(input)
+        if not dragging then return end
+        
+        local delta = input.Position - dragStart
+        local newPosition = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+        
+        local viewportSize = workspace.CurrentCamera.ViewportSize
+        local containerSize = mainFrame.AbsoluteSize
+        
+        local minX = 0
+        local maxX = viewportSize.X - containerSize.X
+        local minY = 0
+        local maxY = viewportSize.Y - containerSize.Y
+        
+        local absoluteX = newPosition.X.Offset
+        local absoluteY = newPosition.Y.Offset
+        
+        absoluteX = math.clamp(absoluteX, minX, maxX)
+        absoluteY = math.clamp(absoluteY, minY, maxY)
+        
+        mainFrame.Position = UDim2.new(0, absoluteX, 0, absoluteY)
+    end
+
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            
+            TweenService:Create(header, TweenInfo.new(0.1), {
+                BackgroundColor3 = Color3.fromRGB(35, 70, 140)
+            }):Play()
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    TweenService:Create(header, TweenInfo.new(0.1), {
+                        BackgroundColor3 = Color3.fromRGB(25, 50, 100)
+                    }):Play()
+                end
+            end)
+        end
+    end)
+
+    header.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updatePosition(input)
+        end
+    end)
+    
+    VeryUp.KeybindList.GUI = keybindContainer
+    VeryUp.KeybindList.MainFrame = mainFrame
+    VeryUp.KeybindList.ListContainer = listContainer
+    VeryUp.KeybindList.Header = header
+    
+    keybindContainer.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    
+    return keybindContainer
+end
+
+function VeryUp:AddKeybindToList(name, key, callback)
+    if not VeryUp.KeybindList.ListContainer then
+        return
+    end
+    
+    local entry = Instance.new("Frame")
+    entry.Size = UDim2.new(1, 0, 0, 25)
+    entry.BackgroundColor3 = Color3.fromRGB(25, 45, 90)
+    entry.BorderSizePixel = 0
+    entry.ZIndex = 22
+    entry.Parent = VeryUp.KeybindList.ListContainer
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(0.7, 0, 1, 0)
+    nameLabel.Text = name
+    nameLabel.FontFace = Font.new(VeryUp.Settings.Font)
+    nameLabel.TextSize = 12
+    nameLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.ZIndex = 23
+    nameLabel.Parent = entry
+    
+    local keyLabel = Instance.new("TextLabel")
+    keyLabel.Size = UDim2.new(0.3, 0, 1, 0)
+    keyLabel.Position = UDim2.new(0.7, 0, 0, 0)
+    keyLabel.Text = "[" .. key .. "]"
+    keyLabel.FontFace = Font.new(VeryUp.Settings.Font)
+    keyLabel.TextSize = 11
+    keyLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    keyLabel.BackgroundTransparency = 1
+    keyLabel.TextXAlignment = Enum.TextXAlignment.Right
+    keyLabel.ZIndex = 23
+    keyLabel.Parent = entry
+    
+    -- Обновляем размер контейнера
+    VeryUp.KeybindList.ListContainer.CanvasSize = UDim2.new(0, 0, 0, VeryUp.KeybindList.ListContainer.UIListLayout.AbsoluteContentSize.Y)
+    
+    -- Сохраняем запись для обновления
+    VeryUp.KeybindList.Entries = VeryUp.KeybindList.Entries or {}
+    table.insert(VeryUp.KeybindList.Entries, {
+        Name = name,
+        Key = key,
+        Entry = entry,
+        NameLabel = nameLabel,
+        KeyLabel = keyLabel
+    })
+end
+
+function VeryUp:UpdateKeybindInList(name, newKey)
+    if not VeryUp.KeybindList.Entries then return end
+    
+    for _, entry in ipairs(VeryUp.KeybindList.Entries) do
+        if entry.Name == name then
+            entry.Key = newKey
+            entry.KeyLabel.Text = "[" .. newKey .. "]"
+            break
+        end
+    end
+end
+
+function VeryUp:RemoveKeybindFromList(name)
+    if not VeryUp.KeybindList.Entries then return end
+    
+    for i, entry in ipairs(VeryUp.KeybindList.Entries) do
+        if entry.Name == name then
+            entry.Entry:Destroy()
+            table.remove(VeryUp.KeybindList.Entries, i)
+            break
+        end
+    end
+end
+
+function VeryUp:ToggleKeybindList()
+    if VeryUp.KeybindList.GUI then
+        VeryUp.KeybindList.GUI.Enabled = not VeryUp.KeybindList.GUI.Enabled
+    end
+end
+
+---------------------------------------------------------------
+-- СИСТЕМА УВЕДОМЛЕНИЙ
+---------------------------------------------------------------
+
+function VeryUp:ShowNotification(message)
+    -- Создаем временное уведомление
+    local notification = Instance.new("TextLabel")
+    notification.Size = UDim2.new(0, 300, 0, 40)
+    notification.Position = UDim2.new(0.5, -150, 0.1, 0)
+    notification.Text = message
+    notification.FontFace = Font.new(VeryUp.Settings.Font)
+    notification.TextSize = 14
+    notification.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notification.BackgroundColor3 = Color3.fromRGB(25, 50, 100)
+    notification.BorderSizePixel = 0
+    notification.ZIndex = 100
+    notification.Parent = VeryUp.GUI.Main
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(100, 200, 255)
+    stroke.Thickness = 2
+    stroke.Parent = notification
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = notification
+    
+    -- Анимация появления
+    notification.BackgroundTransparency = 1
+    TweenService:Create(notification, TweenInfo.new(0.3), {
+        BackgroundTransparency = 0
+    }):Play()
+    
+    -- Автоматическое скрытие через 3 секунды
+    delay(3, function()
+        TweenService:Create(notification, TweenInfo.new(0.3), {
+            BackgroundTransparency = 1
+        }):Play()
+        delay(0.3, function()
+            notification:Destroy()
+        end)
+    end)
+end
 
 ---------------------------------------------------------------
 -- СИСТЕМА СНЕЖИНОК ВНУТРИ GUI
@@ -41,60 +400,52 @@ function VeryUp:CreateSnowflakes(mainContainer)
     snowContainer.Size = UDim2.new(1, 0, 1, 0)
     snowContainer.BackgroundTransparency = 1
     snowContainer.ZIndex = 1
-    snowContainer.ClipsDescendants = true -- Обрезаем снежинки, которые выходят за границы
+    snowContainer.ClipsDescendants = true
     snowContainer.Parent = mainContainer
     
     local snowflakes = {}
-    local snowflakeCount = 50 -- Количество снежинок
-    
-    -- Функция создания одной снежинки
+    local snowflakeCount = 60
+
     local function createSnowflake()
         local snowflake = Instance.new("Frame")
         local size = math.random(3, 8)
         snowflake.Size = UDim2.new(0, size, 0, size)
         
-        -- Начальная позиция в пределах GUI
         snowflake.Position = UDim2.new(
-            math.random() * 0.9 + 0.05, -- От 5% до 95% ширины GUI
+            math.random() * 0.9 + 0.05,
             0,
-            math.random() * -0.2, -- Начинают сверху за пределами видимой области
+            math.random() * -0.2,
             0
         )
         
         snowflake.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         snowflake.BorderSizePixel = 0
         snowflake.ZIndex = 1
-        snowflake.BackgroundTransparency = 0.3 + math.random() * 0.4
+        snowflake.BackgroundTransparency = 0.2 + math.random() * 0.5
         
-        -- Закругление для формы снежинки
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0.5, 0)
         corner.Parent = snowflake
         
-        -- Разные типы снежинок с разным поведением
         local snowflakeType = math.random(1, 4)
         local speed, swing, swingSpeed, rotationSpeed
         
         if snowflakeType == 1 then
-            -- Медленные большие снежинки
             speed = math.random(20, 30)
             swing = math.random() * 3
             swingSpeed = math.random(0.5, 1.5)
             rotationSpeed = math.random(1, 3)
         elseif snowflakeType == 2 then
-            -- Быстрые маленькие снежинки
             speed = math.random(35, 50)
             swing = math.random() * 2
             swingSpeed = math.random(2, 4)
             rotationSpeed = math.random(4, 8)
         elseif snowflakeType == 3 then
-            -- Средние с большим покачиванием
             speed = math.random(25, 40)
             swing = math.random() * 5
             swingSpeed = math.random(1, 2)
             rotationSpeed = math.random(2, 5)
         else
-            -- Очень медленные с вращением
             speed = math.random(15, 25)
             swing = math.random() * 1.5
             swingSpeed = math.random(0.3, 0.8)
@@ -108,21 +459,19 @@ function VeryUp:CreateSnowflakes(mainContainer)
             swingSpeed = swingSpeed,
             rotationSpeed = rotationSpeed,
             size = size,
-            startX = snowflake.Position.X.Scale, -- Запоминаем начальную позицию по X
+            startX = snowflake.Position.X.Scale,
             timeOffset = math.random() * 10,
-            windInfluence = (math.random() - 0.5) * 0.1 -- Влияние ветра (меньше, чтобы не вылетали)
+            windInfluence = (math.random() - 0.5) * 0.1
         }
         
         snowflake.Parent = snowContainer
         return snowflakeData
     end
     
-    -- Создаем все снежинки
     for i = 1, snowflakeCount do
         table.insert(snowflakes, createSnowflake())
     end
     
-    -- Анимация снежинок
     local snowTime = 0
     RunService.Heartbeat:Connect(function(delta)
         snowTime = snowTime + delta
@@ -131,38 +480,29 @@ function VeryUp:CreateSnowflakes(mainContainer)
             local flake = snowflake.instance
             local time = snowTime + snowflake.timeOffset
             
-            -- Движение вниз (в пределах GUI)
             local newY = flake.Position.Y.Scale + (snowflake.speed * delta) / 200
-
-            -- Боковое движение с покачиванием (ограничено границами GUI)
             local swingOffset = math.sin(time * snowflake.swingSpeed + snowflake.swing) * snowflake.swing / 100
             local windOffset = math.sin(time * 0.3) * snowflake.windInfluence
             local newX = snowflake.startX + swingOffset + windOffset
             
-            -- Ограничиваем движение по X в пределах GUI
-            newX = math.clamp(newX, 0.02, 0.98) -- Отступаем 2% от краев
+            newX = math.clamp(newX, 0.02, 0.98)
 
-            -- Вращение
             if snowflake.rotationSpeed > 0 then
                 flake.Rotation = math.sin(time * snowflake.rotationSpeed) * 15
             end
             
-            -- Прозрачность (мерцание)
-            local flicker = 0.3 + math.sin(time * 2 + snowflake.swing) * 0.3
-            flake.BackgroundTransparency = math.clamp(flicker, 0.2, 0.7)
+            local flicker = 0.2 + math.sin(time * 2 + snowflake.swing) * 0.4
+            flake.BackgroundTransparency = math.clamp(flicker, 0.1, 0.6)
             
-            -- Изменение размера (пульсация)
             local scale = 0.7 + math.sin(time * 1.5) * 0.3
             flake.Size = UDim2.new(0, snowflake.size * scale, 0, snowflake.size * scale)
             
-            -- Если снежинка ушла за нижнюю границу GUI, перемещаем её наверх
             if newY > 1.1 then
                 newY = -0.1
-                newX = math.random() * 0.9 + 0.05 -- Случайная позиция по X
+                newX = math.random() * 0.9 + 0.05
                 snowflake.startX = newX
             end
             
-            -- Обновляем позицию
             flake.Position = UDim2.new(newX, 0, newY, 0)
         end
     end)
@@ -171,13 +511,61 @@ function VeryUp:CreateSnowflakes(mainContainer)
 end
 
 ---------------------------------------------------------------
--- ВНУТРЕННИЕ ФУНКЦИИ
+-- НОВОГОДНЯЯ ПОДСВЕТКА И ЭФФЕКТЫ
 ---------------------------------------------------------------
 
--- Создание основного GUI
+function VeryUp:CreateHolidayEffects(mainFrame)
+    -- Блестящие частицы новогоднего фона
+    local sparkleContainer = Instance.new("Frame")
+    sparkleContainer.Size = UDim2.new(1, 0, 1, 0)
+    sparkleContainer.BackgroundTransparency = 1
+    sparkleContainer.ZIndex = 0
+    sparkleContainer.Parent = mainFrame
+    
+    local sparkles = {}
+    for i = 1, 20 do
+        local sparkle = Instance.new("Frame")
+        local size = math.random(2, 4)
+        sparkle.Size = UDim2.new(0, size, 0, size)
+        sparkle.Position = UDim2.new(math.random(), 0, math.random(), 0)
+        sparkle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        sparkle.BorderSizePixel = 0
+        sparkle.BackgroundTransparency = 0.7
+        sparkle.ZIndex = 0
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0.5, 0)
+        corner.Parent = sparkle
+        
+        sparkle.Parent = sparkleContainer
+        table.insert(sparkles, {
+            instance = sparkle,
+            speed = math.random(2, 5),
+            timeOffset = math.random() * 10
+        })
+    end
+    
+    -- Анимация блесток
+    local sparkleTime = 0
+    RunService.Heartbeat:Connect(function(delta)
+        sparkleTime = sparkleTime + delta
+        
+        for i, sparkle in ipairs(sparkles) do
+            local time = sparkleTime + sparkle.timeOffset
+            local transparency = 0.3 + math.sin(time * sparkle.speed) * 0.4
+            sparkle.instance.BackgroundTransparency = transparency
+        end
+    end)
+end
+
+---------------------------------------------------------------
+-- ВНУТРЕННИЕ ФУНКЦИИ GUI
+---------------------------------------------------------------
+
+-- Создание основного GUI с новогодним дизайном
 local function CreateMainGUI()
     local gui = Instance.new("ScreenGui")
-    gui.Name = "VeryUpUIPremium"
+    gui.Name = "VeryUpUIPremiumHoliday"
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
     gui.ResetOnSpawn = false
 
@@ -185,33 +573,33 @@ local function CreateMainGUI()
     mainContainer.Size = UDim2.new(0, 800, 0, 500)
     mainContainer.Position = UDim2.new(0.5, -400, 0.5, -250)
     mainContainer.BackgroundTransparency = 1
-    mainContainer.ClipsDescendants = true -- Важно: обрезаем содержимое по границам
+    mainContainer.ClipsDescendants = true
     mainContainer.Parent = gui
 
-    -- Основной фрейм
+    -- Основной фрейм с новогодним градиентом
     local mainFrame = Instance.new("Frame")
     mainFrame.Size = UDim2.new(1, 0, 1, 0)
     mainFrame.BackgroundColor3 = VeryUp.Settings.DefaultColors.Background
     mainFrame.BorderSizePixel = 0
     mainFrame.Parent = mainContainer
 
-    -- Обводка
+    -- Новогодняя обводка с эффектом свечения
     local outerStroke = Instance.new("UIStroke")
-    outerStroke.Color = Color3.fromRGB(60, 40, 90)
-    outerStroke.Thickness = 2
+    outerStroke.Color = Color3.fromRGB(100, 150, 255)
+    outerStroke.Thickness = 3
     outerStroke.Parent = mainFrame
 
     local innerStroke = Instance.new("UIStroke")
-    innerStroke.Color = VeryUp.Settings.DefaultColors.Primary
+    innerStroke.Color = Color3.fromRGB(200, 230, 255)
     innerStroke.Thickness = 1
     innerStroke.Parent = mainFrame
 
-    -- Градиентный фон
+    -- Зимний градиентный фон
     local backgroundGradient = Instance.new("UIGradient")
     backgroundGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 9, 18)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(15, 11, 22)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 9, 18))
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(8, 25, 50)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(12, 35, 70)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 25, 50))
     })
     backgroundGradient.Rotation = 45
     backgroundGradient.Parent = mainFrame
@@ -219,19 +607,28 @@ local function CreateMainGUI()
     return gui, mainContainer, mainFrame
 end
 
--- Создание верхней панели с возможностью перетаскивания
+-- Создание верхней панели с новогодним дизайном
 local function CreateTopBar(mainFrame, mainContainer)
     local topBar = Instance.new("Frame")
     topBar.Size = UDim2.new(1, 0, 0, 40)
-    topBar.BackgroundColor3 = Color3.fromRGB(18, 14, 24)
+    topBar.BackgroundColor3 = Color3.fromRGB(15, 30, 60)
     topBar.BorderSizePixel = 0
     topBar.ZIndex = 10
     topBar.Parent = mainFrame
 
     local topBarStroke = Instance.new("UIStroke")
-    topBarStroke.Color = Color3.fromRGB(70, 45, 100)
-    topBarStroke.Thickness = 1
+    topBarStroke.Color = Color3.fromRGB(100, 180, 255)
+    topBarStroke.Thickness = 2
     topBarStroke.Parent = topBar
+
+    -- Градиент для верхней панели
+    local topBarGradient = Instance.new("UIGradient")
+    topBarGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 40, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 25, 50))
+    })
+    topBarGradient.Rotation = 90
+    topBarGradient.Parent = topBar
 
     -- Контейнер для названия
     local titleContainer = Instance.new("Frame")
@@ -260,27 +657,27 @@ local function CreateTopBar(mainFrame, mainContainer)
     veryLabel.ZIndex = 11
     veryLabel.Parent = titleContainer
 
-    -- .Up - фиолетовый цвет
+    -- .Up - голубой цвет
     local upLabel = Instance.new("TextLabel")
     upLabel.Size = UDim2.new(0, 0, 1, 0)
     upLabel.AutomaticSize = Enum.AutomaticSize.X
     upLabel.Text = ".Up"
     upLabel.FontFace = Font.new(VeryUp.Settings.Font)
     upLabel.TextSize = 20
-    upLabel.TextColor3 = VeryUp.Settings.DefaultColors.Primary
+    upLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
     upLabel.BackgroundTransparency = 1
     upLabel.TextXAlignment = Enum.TextXAlignment.Left
     upLabel.ZIndex = 11
     upLabel.Parent = titleContainer
 
-    -- Версия
+    -- Версия Rost Alpha
     local versionLabel = Instance.new("TextLabel")
-    versionLabel.Size = UDim2.new(0, 100, 1, 0)
-    versionLabel.Position = UDim2.new(1, -115, 0, 0)
+    versionLabel.Size = UDim2.new(0, 120, 1, 0)
+    versionLabel.Position = UDim2.new(1, -125, 0, 0)
     versionLabel.Text = "Rost Alpha"
     versionLabel.FontFace = Font.new(VeryUp.Settings.Font)
     versionLabel.TextSize = 12
-    versionLabel.TextColor3 = Color3.fromRGB(180, 150, 220)
+    versionLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
     versionLabel.BackgroundTransparency = 1
     versionLabel.TextXAlignment = Enum.TextXAlignment.Right
     versionLabel.ZIndex = 11
@@ -290,7 +687,6 @@ local function CreateTopBar(mainFrame, mainContainer)
     local dragging = false
     local dragInput, dragStart, startPos
 
-    -- Функция обновления позиции с ограничениями
     local function updatePosition(input)
         if not dragging then return end
         
@@ -302,7 +698,6 @@ local function CreateTopBar(mainFrame, mainContainer)
             startPos.Y.Offset + delta.Y
         )
         
-        -- Ограничения для предотвращения выхода за экран
         local viewportSize = workspace.CurrentCamera.ViewportSize
         local containerSize = mainContainer.AbsoluteSize
         
@@ -314,30 +709,27 @@ local function CreateTopBar(mainFrame, mainContainer)
         local absoluteX = newPosition.X.Offset
         local absoluteY = newPosition.Y.Offset
         
-        -- Применяем ограничения
         absoluteX = math.clamp(absoluteX, minX, maxX)
         absoluteY = math.clamp(absoluteY, minY, maxY)
         
         mainContainer.Position = UDim2.new(0, absoluteX, 0, absoluteY)
     end
 
-    -- Обработчики событий перетаскивания
     topBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
             startPos = mainContainer.Position
             
-            -- Эффект при захвате
             TweenService:Create(topBar, TweenInfo.new(0.1), {
-                BackgroundColor3 = Color3.fromRGB(25, 20, 32)
+                BackgroundColor3 = Color3.fromRGB(25, 45, 80)
             }):Play()
             
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
                     TweenService:Create(topBar, TweenInfo.new(0.1), {
-                        BackgroundColor3 = Color3.fromRGB(18, 14, 24)
+                        BackgroundColor3 = Color3.fromRGB(15, 30, 60)
                     }):Play()
                 end
             end)
@@ -359,14 +751,13 @@ local function CreateTopBar(mainFrame, mainContainer)
     return topBar
 end
 
--- Создание системы вкладок (БЕЗ АНИМАЦИИ)
+-- Создание системы вкладок с новогодним стилем
 local function CreateTabSystem(mainFrame)
     local tabNames = {"COMBAT", "VISUALS", "MISC", "CONFIG"}
     local tabContents = {}
     local tabButtons = {}
     local activeTab = "COMBAT"
 
-    -- Контейнер для вкладок
     local tabsContainer = Instance.new("Frame")
     tabsContainer.Size = UDim2.new(1, -20, 0, 35)
     tabsContainer.Position = UDim2.new(0, 10, 0, 45)
@@ -374,14 +765,13 @@ local function CreateTabSystem(mainFrame)
     tabsContainer.ZIndex = 9
     tabsContainer.Parent = mainFrame
 
-    -- Функция создания кнопки вкладки
     local function createTabButton(name, index)
         local tab = Instance.new("TextButton")
         tab.Text = name
         tab.FontFace = Font.new(VeryUp.Settings.Font)
         tab.TextSize = 14
-        tab.TextColor3 = name == activeTab and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(230, 220, 250)
-        tab.BackgroundColor3 = name == activeTab and VeryUp.Settings.DefaultColors.Secondary or Color3.fromRGB(35, 28, 45)
+        tab.TextColor3 = name == activeTab and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 220, 255)
+        tab.BackgroundColor3 = name == activeTab and Color3.fromRGB(30, 60, 120) or Color3.fromRGB(25, 45, 90)
         tab.BorderSizePixel = 0
         tab.AutoButtonColor = false
         tab.Size = UDim2.new(0, 185, 0, 30)
@@ -390,27 +780,26 @@ local function CreateTabSystem(mainFrame)
         tab.Parent = tabsContainer
         
         local tabStroke = Instance.new("UIStroke")
-        tabStroke.Color = name == activeTab and VeryUp.Settings.DefaultColors.Primary or Color3.fromRGB(80, 60, 110)
+        tabStroke.Color = name == activeTab and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(70, 120, 180)
         tabStroke.Thickness = 1.5
         tabStroke.Parent = tab
         
         local tabGradient = Instance.new("UIGradient")
         tabGradient.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 40, 70)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(40, 30, 60))
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 70, 130)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 55, 110))
         })
         tabGradient.Rotation = 90
         tabGradient.Parent = tab
         
-        -- Эффект при наведении
         tab.MouseEnter:Connect(function()
             if name ~= activeTab then
                 TweenService:Create(tab, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(65, 45, 95),
+                    BackgroundColor3 = Color3.fromRGB(35, 70, 140),
                     TextColor3 = Color3.fromRGB(255, 255, 255)
                 }):Play()
                 TweenService:Create(tabStroke, TweenInfo.new(0.2), {
-                    Color = Color3.fromRGB(110, 75, 160)
+                    Color = Color3.fromRGB(120, 200, 255)
                 }):Play()
             end
         end)
@@ -418,11 +807,11 @@ local function CreateTabSystem(mainFrame)
         tab.MouseLeave:Connect(function()
             if name ~= activeTab then
                 TweenService:Create(tab, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(35, 28, 45),
-                    TextColor3 = Color3.fromRGB(230, 220, 250)
+                    BackgroundColor3 = Color3.fromRGB(25, 45, 90),
+                    TextColor3 = Color3.fromRGB(200, 220, 255)
                 }):Play()
                 TweenService:Create(tabStroke, TweenInfo.new(0.2), {
-                    Color = Color3.fromRGB(80, 60, 110)
+                    Color = Color3.fromRGB(70, 120, 180)
                 }):Play()
             end
         end)
@@ -430,7 +819,6 @@ local function CreateTabSystem(mainFrame)
         return tab, tabStroke
     end
 
-    -- Создание вкладок
     for i, name in ipairs(tabNames) do
         local tab, tabStroke = createTabButton(name, i)
         
@@ -445,22 +833,18 @@ local function CreateTabSystem(mainFrame)
         tabContents[name] = tabContent
         tabButtons[name] = {Button = tab, Stroke = tabStroke}
         
-        -- Обработчик клика (БЕЗ АНИМАЦИИ)
         tab.MouseButton1Click:Connect(function()
             if activeTab == name then return end
             
-            -- Скрываем текущую вкладку
             tabContents[activeTab].Visible = false
             
-            -- Обновляем стили кнопок
             for tabName, btnData in pairs(tabButtons) do
                 local isActive = (tabName == name)
-                btnData.Button.BackgroundColor3 = isActive and VeryUp.Settings.DefaultColors.Secondary or Color3.fromRGB(35, 28, 45)
-                btnData.Button.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(230, 220, 250)
-                btnData.Stroke.Color = isActive and VeryUp.Settings.DefaultColors.Primary or Color3.fromRGB(80, 60, 110)
+                btnData.Button.BackgroundColor3 = isActive and Color3.fromRGB(30, 60, 120) or Color3.fromRGB(25, 45, 90)
+                btnData.Button.TextColor3 = isActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 220, 255)
+                btnData.Stroke.Color = isActive and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(70, 120, 180)
             end
             
-            -- Показываем новую вкладку
             tabContent.Visible = true
             activeTab = name
         end)
@@ -469,8 +853,8 @@ local function CreateTabSystem(mainFrame)
     return tabContents
 end
 
--- Создание партиклов
-local function CreateParticles(mainFrame)
+-- Создание новогодних партиклов
+local function CreateHolidayParticles(mainFrame)
     local particleContainer = Instance.new("Frame")
     particleContainer.Size = UDim2.new(1, 0, 1, 0)
     particleContainer.BackgroundTransparency = 1
@@ -478,17 +862,27 @@ local function CreateParticles(mainFrame)
     particleContainer.Parent = mainFrame
 
     local particles = {}
-    local particleCount = 100
+    local particleCount = 80
 
     for i = 1, particleCount do
         local particle = Instance.new("Frame")
         local size = math.random(2, 6)
         particle.Size = UDim2.new(0, size, 0, size)
         particle.Position = UDim2.new(0, math.random(-50, 850), 0, math.random(-100, 600))
-        particle.BackgroundColor3 = Color3.fromRGB(200, 180, 255)
+        
+        -- Новогодние цвета частиц
+        local colorType = math.random(1, 3)
+        if colorType == 1 then
+            particle.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- Белый
+        elseif colorType == 2 then
+            particle.BackgroundColor3 = Color3.fromRGB(100, 200, 255) -- Голубой
+        else
+            particle.BackgroundColor3 = Color3.fromRGB(200, 230, 255) -- Светло-голубой
+        end
+        
         particle.BorderSizePixel = 0
         particle.ZIndex = 0
-        particle.BackgroundTransparency = 0.4 + math.random() * 0.4
+        particle.BackgroundTransparency = 0.3 + math.random() * 0.4
         
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0.5, 0)
@@ -527,7 +921,6 @@ local function CreateParticles(mainFrame)
         particle.Parent = particleContainer
     end
 
-    -- Анимация партиклов
     local particleTime = 0
     RunService.Heartbeat:Connect(function(delta)
         particleTime = particleTime + delta
@@ -561,8 +954,8 @@ local function CreateParticles(mainFrame)
     end)
 end
 
--- Создание ссылки на Discord внизу GUI
-local function CreateDiscordLink(mainFrame)
+-- Создание новогодней ссылки на Discord
+local function CreateHolidayDiscordLink(mainFrame)
     local discordContainer = Instance.new("Frame")
     discordContainer.Size = UDim2.new(1, 0, 0, 20)
     discordContainer.Position = UDim2.new(0, 0, 1, -25)
@@ -575,22 +968,20 @@ local function CreateDiscordLink(mainFrame)
     discordLink.Text = "https://discord.gg/suKRSKDv"
     discordLink.FontFace = Font.new(VeryUp.Settings.Font)
     discordLink.TextSize = 10
-    discordLink.TextColor3 = Color3.fromRGB(150, 140, 180)
+    discordLink.TextColor3 = Color3.fromRGB(180, 220, 255)
     discordLink.BackgroundTransparency = 1
     discordLink.BorderSizePixel = 0
     discordLink.ZIndex = 11
     discordLink.Parent = discordContainer
 
-    -- Подчеркивание для имитации ссылки
     local underline = Instance.new("Frame")
     underline.Size = UDim2.new(0, 0, 0, 1)
     underline.Position = UDim2.new(0.5, 0, 1, -2)
-    underline.BackgroundColor3 = Color3.fromRGB(150, 140, 180)
+    underline.BackgroundColor3 = Color3.fromRGB(180, 220, 255)
     underline.BorderSizePixel = 0
     underline.ZIndex = 11
     underline.Parent = discordLink
 
-    -- Анимация подчеркивания
     local function updateUnderline()
         local textWidth = discordLink.TextBounds.X
         TweenService:Create(underline, TweenInfo.new(0.3), {
@@ -599,17 +990,15 @@ local function CreateDiscordLink(mainFrame)
         }):Play()
     end
 
-    -- Обновляем подчеркивание когда текст меняется
     discordLink:GetPropertyChangedSignal("Text"):Connect(updateUnderline)
     updateUnderline()
 
-    -- Эффекты при наведении
     discordLink.MouseEnter:Connect(function()
         TweenService:Create(discordLink, TweenInfo.new(0.2), {
-            TextColor3 = VeryUp.Settings.DefaultColors.Primary
+            TextColor3 = Color3.fromRGB(100, 200, 255)
         }):Play()
         TweenService:Create(underline, TweenInfo.new(0.2), {
-            BackgroundColor3 = VeryUp.Settings.DefaultColors.Primary,
+            BackgroundColor3 = Color3.fromRGB(100, 200, 255),
             Size = UDim2.new(0, discordLink.TextBounds.X + 10, 0, 1),
             Position = UDim2.new(0.5, -(discordLink.TextBounds.X + 10)/2, 1, -2)
         }):Play()
@@ -617,23 +1006,20 @@ local function CreateDiscordLink(mainFrame)
 
     discordLink.MouseLeave:Connect(function()
         TweenService:Create(discordLink, TweenInfo.new(0.2), {
-            TextColor3 = Color3.fromRGB(150, 140, 180)
+            TextColor3 = Color3.fromRGB(180, 220, 255)
         }):Play()
         TweenService:Create(underline, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(150, 140, 180),
+            BackgroundColor3 = Color3.fromRGB(180, 220, 255),
             Size = UDim2.new(0, discordLink.TextBounds.X, 0, 1),
             Position = UDim2.new(0.5, -discordLink.TextBounds.X/2, 1, -2)
         }):Play()
     end)
 
-    -- Функциональность при клике
     discordLink.MouseButton1Click:Connect(function()
-        -- Копируем ссылку в буфер обмена
         pcall(function()
             setclipboard("https://discord.gg/suKRSKDv")
         end)
         
-        -- Визуальная обратная связь
         local originalText = discordLink.Text
         discordLink.Text = "Скопировано в буфер!"
         
@@ -641,11 +1027,10 @@ local function CreateDiscordLink(mainFrame)
             TextColor3 = Color3.fromRGB(100, 255, 100)
         }):Play()
         
-        -- Возвращаем оригинальный текст через 2 секунды
         delay(2, function()
             discordLink.Text = originalText
             TweenService:Create(discordLink, TweenInfo.new(0.2), {
-                TextColor3 = Color3.fromRGB(150, 140, 180)
+                TextColor3 = Color3.fromRGB(180, 220, 255)
             }):Play()
         end)
     end)
@@ -665,7 +1050,6 @@ function VeryUp:AddTab(tabName)
     tab.Columns = {}
     tab.Groups = {}
     
-    -- Создаем колонки для вкладки
     for i = 1, 3 do
         local column = Instance.new("Frame")
         column.Size = UDim2.new(0.32, -5, 1, 0)
@@ -699,14 +1083,23 @@ function VeryUp:AddGroup(groupName, height, columnIndex)
     
     local group = Instance.new("Frame")
     group.Size = UDim2.new(1, 0, 0, height or 160)
-    group.BackgroundColor3 = Color3.fromRGB(20, 16, 28)
+    group.BackgroundColor3 = Color3.fromRGB(20, 40, 80)
     group.BorderSizePixel = 0
     group.ZIndex = 9
     
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(70, 55, 100)
+    stroke.Color = Color3.fromRGB(70, 140, 255)
     stroke.Thickness = 1
     stroke.Parent = group
+    
+    -- Новогодний градиент для групп
+    local groupGradient = Instance.new("UIGradient")
+    groupGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 50, 100)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 40, 80))
+    })
+    groupGradient.Rotation = 90
+    groupGradient.Parent = group
     
     local header = Instance.new("TextLabel")
     header.Size = UDim2.new(1, -10, 0, 25)
@@ -714,7 +1107,7 @@ function VeryUp:AddGroup(groupName, height, columnIndex)
     header.Text = groupName or "Group"
     header.FontFace = Font.new(VeryUp.Settings.Font)
     header.TextSize = 14
-    header.TextColor3 = Color3.fromRGB(240, 235, 255)
+    header.TextColor3 = Color3.fromRGB(240, 245, 255)
     header.BackgroundTransparency = 1
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.ZIndex = 10
@@ -755,6 +1148,10 @@ function VeryUp:AddGroup(groupName, height, columnIndex)
         
         AddLabel = function(self, text)
             return VeryUp:_CreateLabel(self.Content, text)
+        end,
+        
+        AddDropdown = function(self, text, options, default, callback)
+            return VeryUp:_CreateDropdown(self.Content, text, options, default, callback)
         end
     }
     
@@ -763,13 +1160,13 @@ function VeryUp:AddGroup(groupName, height, columnIndex)
 end
 
 ---------------------------------------------------------------
--- МЕТОДЫ ДЛЯ СОЗДАНИЯ ЭЛЕМЕНТОВ
+-- МЕТОДЫ ДЛЯ СОЗДАНИЯ ЭЛЕМЕНТОВ (НОВОГОДНИЙ СТИЛЬ)
 ---------------------------------------------------------------
 
 function VeryUp:_CreateToggle(parent, text, callback)
     local toggle = Instance.new("Frame")
     toggle.Size = UDim2.new(1, 0, 0, 25)
-    toggle.BackgroundColor3 = Color3.fromRGB(25, 20, 35)
+    toggle.BackgroundColor3 = Color3.fromRGB(25, 45, 90)
     toggle.BorderSizePixel = 0
     toggle.ZIndex = 10
     
@@ -778,7 +1175,7 @@ function VeryUp:_CreateToggle(parent, text, callback)
     label.Text = text
     label.FontFace = Font.new(VeryUp.Settings.Font)
     label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(240, 235, 255)
+    label.TextColor3 = Color3.fromRGB(240, 245, 255)
     label.BackgroundTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.ZIndex = 11
@@ -791,7 +1188,7 @@ function VeryUp:_CreateToggle(parent, text, callback)
     toggleBtn.FontFace = Font.new(VeryUp.Settings.Font)
     toggleBtn.TextSize = 10
     toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(70, 55, 95)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(70, 100, 150)
     toggleBtn.BorderSizePixel = 0
     toggleBtn.ZIndex = 11
     toggleBtn.Parent = toggle
@@ -800,7 +1197,7 @@ function VeryUp:_CreateToggle(parent, text, callback)
     
     local function updateToggle()
         toggleBtn.Text = state and "ON" or "OFF"
-        local targetColor = state and VeryUp.Settings.DefaultColors.Secondary or Color3.fromRGB(70, 55, 95)
+        local targetColor = state and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(70, 100, 150)
         TweenService:Create(toggleBtn, TweenInfo.new(0.15), {
             BackgroundColor3 = targetColor
         }):Play()
@@ -839,7 +1236,7 @@ end
 function VeryUp:_CreateSlider(parent, text, min, max, default, callback)
     local slider = Instance.new("Frame")
     slider.Size = UDim2.new(1, 0, 0, 50)
-    slider.BackgroundColor3 = Color3.fromRGB(25, 20, 35)
+    slider.BackgroundColor3 = Color3.fromRGB(25, 45, 90)
     slider.BorderSizePixel = 0
     slider.ZIndex = 10
     
@@ -849,7 +1246,7 @@ function VeryUp:_CreateSlider(parent, text, min, max, default, callback)
     label.Text = text
     label.FontFace = Font.new(VeryUp.Settings.Font)
     label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(240, 235, 255)
+    label.TextColor3 = Color3.fromRGB(240, 245, 255)
     label.BackgroundTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.ZIndex = 11
@@ -861,7 +1258,7 @@ function VeryUp:_CreateSlider(parent, text, min, max, default, callback)
     valueLabel.Text = tostring(default)
     valueLabel.FontFace = Font.new(VeryUp.Settings.Font)
     valueLabel.TextSize = 11
-    valueLabel.TextColor3 = Color3.fromRGB(210, 200, 240)
+    valueLabel.TextColor3 = Color3.fromRGB(200, 220, 255)
     valueLabel.BackgroundTransparency = 1
     valueLabel.TextXAlignment = Enum.TextXAlignment.Right
     valueLabel.ZIndex = 11
@@ -870,14 +1267,14 @@ function VeryUp:_CreateSlider(parent, text, min, max, default, callback)
     local track = Instance.new("Frame")
     track.Size = UDim2.new(1, -10, 0, 8)
     track.Position = UDim2.new(0, 5, 1, -25)
-    track.BackgroundColor3 = Color3.fromRGB(45, 40, 60)
+    track.BackgroundColor3 = Color3.fromRGB(45, 70, 120)
     track.BorderSizePixel = 0
     track.ZIndex = 11
     track.Parent = slider
     
     local fill = Instance.new("Frame")
     fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-    fill.BackgroundColor3 = VeryUp.Settings.DefaultColors.Secondary
+    fill.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
     fill.BorderSizePixel = 0
     fill.ZIndex = 12
     fill.Parent = track
@@ -954,7 +1351,7 @@ end
 function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
     local keybind = Instance.new("Frame")
     keybind.Size = UDim2.new(1, 0, 0, 25)
-    keybind.BackgroundColor3 = Color3.fromRGB(25, 20, 35)
+    keybind.BackgroundColor3 = Color3.fromRGB(25, 45, 90)
     keybind.BorderSizePixel = 0
     keybind.ZIndex = 10
     
@@ -963,7 +1360,7 @@ function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
     label.Text = text
     label.FontFace = Font.new(VeryUp.Settings.Font)
     label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(240, 235, 255)
+    label.TextColor3 = Color3.fromRGB(240, 245, 255)
     label.BackgroundTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.ZIndex = 11
@@ -976,7 +1373,7 @@ function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
     keyBtn.FontFace = Font.new(VeryUp.Settings.Font)
     keyBtn.TextSize = 10
     keyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    keyBtn.BackgroundColor3 = Color3.fromRGB(70, 55, 95)
+    keyBtn.BackgroundColor3 = Color3.fromRGB(70, 100, 150)
     keyBtn.BorderSizePixel = 0
     keyBtn.ZIndex = 11
     keyBtn.Parent = keybind
@@ -990,20 +1387,23 @@ function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
             Key = currentKey,
             Callback = callback
         }
+        
+        -- Автоматически добавляем в Keybind List
+        VeryUp:AddKeybindToList(text, currentKey, callback)
     end
     
     keyBtn.MouseButton1Click:Connect(function()
         listening = true
         keyBtn.Text = "..."
         TweenService:Create(keyBtn, TweenInfo.new(0.2), {
-            BackgroundColor3 = VeryUp.Settings.DefaultColors.Secondary
+            BackgroundColor3 = Color3.fromRGB(100, 180, 255)
         }):Play()
     end)
     
     local function stopListening()
         listening = false
         TweenService:Create(keyBtn, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(70, 55, 95)
+            BackgroundColor3 = Color3.fromRGB(70, 100, 150)
         }):Play()
     end
     
@@ -1031,6 +1431,10 @@ function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
         
         currentKey = newKey
         keyBtn.Text = newKey
+        
+        -- Обновляем Keybind List
+        VeryUp:UpdateKeybindInList(text, newKey)
+        
         stopListening()
     end)
     
@@ -1048,6 +1452,7 @@ function VeryUp:_CreateKeybind(parent, text, defaultKey, callback)
                 Key = key,
                 Callback = callback
             }
+            VeryUp:UpdateKeybindInList(text, key)
         end
     }
     
@@ -1062,20 +1467,20 @@ function VeryUp:_CreateButton(parent, text, callback)
     button.FontFace = Font.new(VeryUp.Settings.Font)
     button.TextSize = 12
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.BackgroundColor3 = Color3.fromRGB(70, 55, 95)
+    button.BackgroundColor3 = Color3.fromRGB(70, 120, 180)
     button.BorderSizePixel = 0
     button.ZIndex = 10
     button.Parent = parent
     
     button.MouseEnter:Connect(function()
         TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = VeryUp.Settings.DefaultColors.Secondary
+            BackgroundColor3 = Color3.fromRGB(100, 180, 255)
         }):Play()
     end)
     
     button.MouseLeave:Connect(function()
         TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(70, 55, 95)
+            BackgroundColor3 = Color3.fromRGB(70, 120, 180)
         }):Play()
     end)
     
@@ -1102,7 +1507,7 @@ function VeryUp:_CreateLabel(parent, text)
     label.Text = text
     label.FontFace = Font.new(VeryUp.Settings.Font)
     label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(200, 190, 220)
+    label.TextColor3 = Color3.fromRGB(200, 220, 255)
     label.BackgroundTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.ZIndex = 10
@@ -1119,11 +1524,76 @@ function VeryUp:_CreateLabel(parent, text)
     return labelObj
 end
 
+function VeryUp:_CreateDropdown(parent, text, options, default, callback)
+    local dropdown = Instance.new("Frame")
+    dropdown.Size = UDim2.new(1, 0, 0, 25)
+    dropdown.BackgroundColor3 = Color3.fromRGB(25, 45, 90)
+    dropdown.BorderSizePixel = 0
+    dropdown.ZIndex = 10
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.6, 0, 1, 0)
+    label.Text = text
+    label.FontFace = Font.new(VeryUp.Settings.Font)
+    label.TextSize = 12
+    label.TextColor3 = Color3.fromRGB(240, 245, 255)
+    label.BackgroundTransparency = 1
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 11
+    label.Parent = dropdown
+    
+    local dropdownBtn = Instance.new("TextButton")
+    dropdownBtn.Size = UDim2.new(0.35, 0, 0, 18)
+    dropdownBtn.Position = UDim2.new(0.65, 0, 0.5, -9)
+    dropdownBtn.Text = options[default] or "Select..."
+    dropdownBtn.FontFace = Font.new(VeryUp.Settings.Font)
+    dropdownBtn.TextSize = 10
+    dropdownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    dropdownBtn.BackgroundColor3 = Color3.fromRGB(70, 100, 150)
+    dropdownBtn.BorderSizePixel = 0
+    dropdownBtn.ZIndex = 11
+    dropdownBtn.Parent = dropdown
+    
+    local currentOption = default
+    
+    local dropdownObj = {
+        Main = dropdown,
+        GetValue = function(self)
+            return currentOption
+        end,
+        SetValue = function(self, value)
+            if options[value] then
+                currentOption = value
+                dropdownBtn.Text = options[value]
+                if callback then
+                    callback(value)
+                end
+            end
+        end
+    }
+    
+    dropdownBtn.MouseButton1Click:Connect(function()
+        -- Здесь можно добавить выпадающий список
+        -- Для простоты сделаем циклическое переключение
+        local keys = {}
+        for k, _ in pairs(options) do
+            table.insert(keys, k)
+        end
+        
+        local currentIndex = table.find(keys, currentOption) or 1
+        local nextIndex = (currentIndex % #keys) + 1
+        dropdownObj:SetValue(keys[nextIndex])
+    end)
+    
+    dropdown.Parent = parent
+    table.insert(VeryUp.Elements, dropdownObj)
+    return dropdownObj
+end
+
 ---------------------------------------------------------------
 -- ИНИЦИАЛИЗАЦИЯ И ЭКСПОРТ
 ---------------------------------------------------------------
 
--- Обработчик кейбиндов
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
@@ -1147,20 +1617,19 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Функция инициализации
 function VeryUp:Init()
-    -- Создание GUI
     local gui, mainContainer, mainFrame = CreateMainGUI()
     local topBar = CreateTopBar(mainFrame, mainContainer)
     local tabContents = CreateTabSystem(mainFrame)
     
-    -- СОЗДАНИЕ СНЕЖИНОК ВНУТРИ GUI (исправленная версия)
     VeryUp:CreateSnowflakes(mainContainer)
+    VeryUp:CreateHolidayEffects(mainFrame)
+    CreateHolidayParticles(mainFrame)
+    local discordLink = CreateHolidayDiscordLink(mainFrame)
     
-    CreateParticles(mainFrame)
-    local discordLink = CreateDiscordLink(mainFrame)
+    -- Создаем Keybind List
+    VeryUp:CreateKeybindList()
     
-    -- Сохраняем ссылки на GUI
     VeryUp.GUI = {
         Main = gui,
         Container = mainContainer,
@@ -1170,7 +1639,6 @@ function VeryUp:Init()
         DiscordLink = discordLink
     }
     
-    -- Анимация появления
     task.delay(0.1, function()
         mainContainer.Size = UDim2.new(0, 0, 0, 0)
         mainContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -1182,7 +1650,6 @@ function VeryUp:Init()
         openTween:Play()
     end)
     
-    -- Система переключения GUI
     local guiEnabled = true
     local animating = false
     
@@ -1217,22 +1684,28 @@ function VeryUp:Init()
         end
     end
     
-    -- Кейбинд для меню
     VeryUp.ActiveKeybinds["MenuToggle"] = {
         Key = VeryUp.Settings.MenuToggleKey,
         Callback = toggleGUI
     }
     
-    -- Помещаем GUI в PlayerGui
+    -- Добавляем кейбинд для переключения Keybind List
+    VeryUp.ActiveKeybinds["KeybindListToggle"] = {
+        Key = "F1",
+        Callback = function()
+            VeryUp:ToggleKeybindList()
+        end
+    }
+    
     gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
     
-    print("🎮 Very.Up Premium UI Loaded!")
+    print("🎄 Very.Up Holiday Edition Loaded!")
+    print("❄️ Winter theme with snowflakes and effects")
     print("📱 Press " .. VeryUp.Settings.MenuToggleKey .. " to toggle menu")
-    print("💫 Version: Rost Alpha")
-    print("🔧 Modular system ready!")
-    print("🖱️ Drag the top bar to move the GUI")
-    print("❄️ Snowflakes system activated INSIDE GUI!")
-    print("📢 Join our Discord: https://discord.gg/suKRSKDv")
+    print("🔹 Press F1 to toggle Keybind List")
+    print("🔹 Version: Rost Alpha")
+    print("✨ Magical particle effects and glowing elements")
+    print("🔗 Join our Discord: https://discord.gg/suKRSKDv")
     
     return VeryUp
 end
